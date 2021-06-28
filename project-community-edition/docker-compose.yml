@@ -1,0 +1,147 @@
+version: '2.1'
+services:
+  generic:
+    hostname: generic.jagaad.docker
+    image: 'alpine:latest'
+    environment:
+      - PHP_MEMORY_LIMIT=2048M
+      - UPLOAD_MAX_FILESIZE=64M
+      - MAGENTO_ROOT=/app
+      - PHP_IDE_CONFIG=serverName=magento_cloud_docker
+      - XDEBUG_CONFIG=remote_host=host.docker.internal
+      - MAGENTO_RUN_MODE=developer
+      - 'PHP_EXTENSIONS=bcmath bz2 calendar exif gd gettext intl mysqli pcntl pdo_mysql soap sockets sysvmsg sysvsem sysvshm opcache zip xsl sodium'
+  db:
+    hostname: db.jagaad.docker
+    image: 'mariadb:10.4'
+    environment:
+      - MYSQL_ROOT_PASSWORD=magento2
+      - MYSQL_DATABASE=jagaad
+      - MYSQL_USER=magento2
+      - MYSQL_PASSWORD=magento2
+    ports:
+      - '3306'
+    volumes:
+      - 'mymagento-magento1-sync:/app:delegated'
+      - 'mymagento-magento1-db:/var/lib/mysql'
+    networks:
+      magento:
+        aliases:
+          - db.jagaad.docker
+  redis:
+    hostname: redis.jagaad.docker
+    image: 'redis:5.0'
+    volumes:
+      - 'mymagento-magento1-sync:/app:delegated'
+    ports:
+      - 6379
+    networks:
+      magento:
+        aliases:
+          - redis.jagaad.docker
+  elasticsearch:
+    hostname: elasticsearch.jagaad.docker
+    image: 'magento/magento-cloud-docker-elasticsearch:7.7-1.1'
+    networks:
+      magento:
+        aliases:
+          - elasticsearch.jagaad.docker
+    healthcheck:
+      disable: true
+  fpm:
+    hostname: fpm.jagaad.docker
+    image: 'magento/magento-cloud-docker-php:7.4-fpm-1.1'
+    extends: generic
+    volumes:
+      - 'mymagento-magento1-sync:/app:delegated'
+    networks:
+      magento:
+        aliases:
+          - fpm.jagaad.docker
+    depends_on:
+      - db
+    healthcheck:
+      disable: true
+  web:
+    hostname: web.jagaad.docker
+    image: 'magento/magento-cloud-docker-nginx:latest-1.1'
+    extends: generic
+    ports:
+      - '80:80'
+    volumes:
+      - 'mymagento-magento1-sync:/app:delegated'
+    environment:
+      - VIRTUAL_HOST=jagaad.docker
+      - VIRTUAL_PORT=80
+      - HTTPS_METHOD=noredirect
+      - WITH_XDEBUG=0
+    networks:
+      magento:
+        aliases:
+          - web.jagaad.docker
+    depends_on:
+      fpm:
+        condition: service_started
+    healthcheck:
+      disable: true
+  varnish:
+    hostname: varnish.jagaad.docker
+    image: 'magento/magento-cloud-docker-varnish:latest-1.1'
+    networks:
+      magento:
+        aliases:
+          - jagaad.docker
+    depends_on:
+      - web
+  tls:
+    hostname: tls.jagaad.docker
+    image: 'magento/magento-cloud-docker-tls:latest-1.1'
+    ports:
+      - '443:443'
+    environment:
+      - HTTPS_UPSTREAM_SERVER_ADDRESS=varnish
+      - TIMEOUT=600
+    networks:
+      magento:
+        aliases:
+          - tls.jagaad.docker
+    depends_on:
+      - varnish
+  cron:
+    hostname: cron.jagaad.docker
+    image: 'magento/magento-cloud-docker-php:7.4-cli-1.1'
+    extends: generic
+    command: run-cron
+    environment:
+      CRONTAB: '* * * * * root cd /app && /usr/local/bin/php bin/magento cron:run >> /app/var/log/cron.log'
+    volumes:
+      - 'mymagento-magento1-sync:/app:delegated'
+    networks:
+      magento:
+        aliases:
+          - cron.jagaad.docker
+    depends_on:
+      - db
+      - redis
+      - elasticsearch
+  mailhog:
+    hostname: mailhog.jagaad.docker
+    image: 'mailhog/mailhog:latest'
+    restart: always
+    ports:
+      - '1025:1025'
+      - '8025:8025'
+    networks:
+      magento:
+        aliases:
+          - mailhog.jagaad.docker
+volumes:
+  mymagento-magento1-sync:
+    driver_opts:
+      type: none
+      device: '${PWD}/'
+      o: bind
+  mymagento-magento1-db: {  }
+networks:
+  magento:
+    driver: bridge
