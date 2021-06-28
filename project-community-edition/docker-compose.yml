@@ -124,17 +124,6 @@ services:
       - db
       - redis
       - elasticsearch
-  mailhog:
-    hostname: mailhog.jagaad.docker
-    image: 'mailhog/mailhog:latest'
-    restart: always
-    ports:
-      - '1025:1025'
-      - '8025:8025'
-    networks:
-      magento:
-        aliases:
-          - mailhog.jagaad.docker
 volumes:
   mymagento-magento1-sync:
     driver_opts:
